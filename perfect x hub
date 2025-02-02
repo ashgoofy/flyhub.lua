@@ -1,0 +1,209 @@
+local player = game.Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+local flying = false
+local speed = 50  -- Default flying speed
+local walkSpeed = 16  -- Default walk speed
+local jumpPower = 50  -- Default jump power
+local bodyGyro
+local bodyVelocity
+local currentVelocity = Vector3.new(0, 0, 0)
+
+-- Create the GUI panel
+local screenGui = Instance.new("ScreenGui")
+screenGui.Parent = player.PlayerGui
+
+local panel = Instance.new("Frame")
+panel.Size = UDim2.new(0, 400, 0, 400)  -- Square and larger panel
+panel.Position = UDim2.new(0.5, -200, 0.5, -200)  -- Centered on the screen
+panel.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+panel.BackgroundTransparency = 0.5
+panel.Visible = true  -- Panel is visible initially
+panel.Parent = screenGui
+
+-- Title Label for "Perfect X Hub"
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Size = UDim2.new(0, 200, 0, 30)
+titleLabel.Position = UDim2.new(0, 10, 0, 10)
+titleLabel.Text = "Perfect X Hub"
+titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+titleLabel.BackgroundTransparency = 1
+titleLabel.TextSize = 18
+titleLabel.Font = Enum.Font.SourceSansBold
+titleLabel.Parent = panel
+
+-- Create the textboxes for Fly Speed, Walk Speed, and Jump Power
+local function createInputField(yPos, labelText, defaultValue, minValue, maxValue)
+    -- Create the label
+    local inputLabel = Instance.new("TextLabel")
+    inputLabel.Size = UDim2.new(1, -40, 0, 20)
+    inputLabel.Position = UDim2.new(0, 20, 0, yPos)
+    inputLabel.Text = labelText .. ": " .. defaultValue
+    inputLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    inputLabel.BackgroundTransparency = 1
+    inputLabel.Parent = panel
+
+    -- Create the input box
+    local inputBox = Instance.new("TextBox")
+    inputBox.Size = UDim2.new(0, 60, 0, 20)
+    inputBox.Position = UDim2.new(1, -80, 0, yPos)
+    inputBox.Text = tostring(defaultValue)
+    inputBox.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+    inputBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+    inputBox.TextSize = 14
+    inputBox.Parent = panel
+
+    -- Function to update the value when text is entered
+    local function updateInput()
+        local value = tonumber(inputBox.Text)
+        if value then
+            -- Clamp value to the min/max range
+            value = math.clamp(value, minValue, maxValue)
+            inputBox.Text = tostring(value) -- Ensure the value is displayed as a valid number
+            inputLabel.Text = labelText .. ": " .. math.floor(value)
+            return value
+        else
+            inputBox.Text = tostring(defaultValue)  -- If invalid, reset to default
+            inputLabel.Text = labelText .. ": " .. defaultValue
+        end
+        return defaultValue  -- Return the default if the input was invalid
+    end
+
+    -- Handle input lost focus event
+    inputBox.FocusLost:Connect(function()
+        updateInput()
+    end)
+
+    -- Return the function to get the current value of the input
+    return updateInput
+end
+
+-- Create input fields for Fly Speed, Walk Speed, and Jump Power
+local getFlySpeed = createInputField(50, "Fly Speed", speed, 10, 100)
+local getWalkSpeed = createInputField(120, "Walk Speed", walkSpeed, 10, 100)
+local getJumpPower = createInputField(190, "Jump Power", jumpPower, 30, 150)
+
+-- Create the Player ESP toggle button
+local espButton = Instance.new("TextButton")
+espButton.Size = UDim2.new(1, -40, 0, 40)
+espButton.Position = UDim2.new(0, 20, 0, 250)
+espButton.Text = "Player ESP"
+espButton.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+espButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+espButton.Font = Enum.Font.SourceSansBold
+espButton.TextSize = 18
+espButton.Parent = panel
+
+local espEnabled = false  -- Keep track of ESP status
+local espObjects = {}  -- To store ESP parts for players
+
+-- Function to update the speed input fields and apply them to flight and humanoid
+local function updateSpeeds()
+    speed = getFlySpeed()      -- Get custom flying speed
+    walkSpeed = getWalkSpeed() -- Get custom walk speed
+    jumpPower = getJumpPower() -- Get custom jump power
+    humanoid.WalkSpeed = walkSpeed
+    humanoid.JumpPower = jumpPower
+end
+
+-- Updated flying mechanic logic using BodyGyro and BodyVelocity
+local function startFlying()
+    if not flying then
+        -- Start flying
+        bodyGyro = Instance.new("BodyGyro")
+        bodyVelocity = Instance.new("BodyVelocity")
+
+        -- Ensure the body velocity will apply to the humanoid root part
+        local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+        bodyGyro.MaxTorque = Vector3.new(400000, 400000, 400000)
+        bodyGyro.CFrame = humanoidRootPart.CFrame
+        bodyGyro.Parent = humanoidRootPart
+
+        bodyVelocity.MaxForce = Vector3.new(400000, 400000, 400000)
+        bodyVelocity.Velocity = currentVelocity
+        bodyVelocity.Parent = humanoidRootPart
+
+        flying = true
+        updateSpeeds()
+    end
+end
+
+local function stopFlying()
+    if flying then
+        -- Stop flying
+        if bodyGyro then
+            bodyGyro:Destroy()
+        end
+        if bodyVelocity then
+            bodyVelocity:Destroy()
+        end
+        flying = false
+    end
+end
+
+-- Update movement while flying (WASD + Vertical Movement)
+game:GetService("RunService").Heartbeat:Connect(function()
+    if flying then
+        local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+        local bodyVelocity = humanoidRootPart:FindFirstChildOfClass("BodyVelocity")
+        
+        if bodyVelocity then
+            -- Apply directional movement (WASD keys or mouse input for flying direction)
+            local direction = Vector3.new(0, 0, 0)
+            
+            local userInputService = game:GetService("UserInputService")
+            local moveDirection = Vector3.new()
+
+            -- Get movement direction based on key inputs (WASD)
+            if userInputService:IsKeyDown(Enum.KeyCode.W) then
+                moveDirection = moveDirection + humanoidRootPart.CFrame.LookVector
+            end
+            if userInputService:IsKeyDown(Enum.KeyCode.S) then
+                moveDirection = moveDirection - humanoidRootPart.CFrame.LookVector
+            end
+            if userInputService:IsKeyDown(Enum.KeyCode.A) then
+                moveDirection = moveDirection - humanoidRootPart.CFrame.RightVector
+            end
+            if userInputService:IsKeyDown(Enum.KeyCode.D) then
+                moveDirection = moveDirection + humanoidRootPart.CFrame.RightVector
+            end
+
+            -- Get vertical movement (Space = up, Ctrl = down)
+            if userInputService:IsKeyDown(Enum.KeyCode.Space) then
+                moveDirection = moveDirection + Vector3.new(0, 1, 0)  -- Move up
+            end
+            if userInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
+                moveDirection = moveDirection - Vector3.new(0, 1, 0)  -- Move down
+            end
+
+            -- Normalize the direction to prevent faster movement when multiple keys are pressed
+            if moveDirection.magnitude > 0 then
+                moveDirection = moveDirection.Unit
+            end
+
+            -- Set velocity based on direction and flying speed
+            bodyVelocity.Velocity = moveDirection * speed + Vector3.new(0, currentVelocity.Y, 0)
+        end
+    end
+end)
+
+-- Toggle fly mode when pressing "F"
+game:GetService("UserInputService").InputBegan:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.F then
+        if flying then
+            stopFlying()
+        else
+            startFlying()
+        end
+    end
+end)
+
+-- Toggle the panel visibility when pressing "P"
+game:GetService("UserInputService").InputBegan:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.P then
+        panel.Visible = not panel.Visible  -- Toggle the visibility of the panel
+    end
+end)
+
+-- Apply the speeds immediately when the values are updated
+updateSpeeds()
